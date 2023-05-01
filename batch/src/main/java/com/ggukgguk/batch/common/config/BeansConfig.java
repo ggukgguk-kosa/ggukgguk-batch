@@ -1,22 +1,25 @@
 package com.ggukgguk.batch.common.config;
 
-import com.ggukgguk.batch.common.service.ComprehendService;
-import com.ggukgguk.batch.common.service.ComprehendServiceImpl;
-import com.ggukgguk.batch.common.service.RekognizeService;
-import com.ggukgguk.batch.common.service.RekognizeServiceImpl;
-import org.springframework.batch.core.configuration.annotation.StepScope;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ggukgguk.batch.extractKeyword.service.ColorService;
+import com.ggukgguk.batch.extractKeyword.service.ColorServiceImpl;
+import com.ggukgguk.batch.extractKeyword.service.ComprehendService;
+import com.ggukgguk.batch.extractKeyword.service.ComprehendServiceImpl;
+import com.ggukgguk.batch.checkContent.service.RekognizeService;
+import com.ggukgguk.batch.checkContent.service.RekognizeServiceImpl;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestTemplate;
 
 @Configuration
 public class BeansConfig {
     @Bean
-    public ComprehendService comprehendService() {
-        return new ComprehendServiceImpl();
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
     }
 
     @Bean
-    public RekognizeService rekognizeService() {
-        return new RekognizeServiceImpl();
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
     }
 }
