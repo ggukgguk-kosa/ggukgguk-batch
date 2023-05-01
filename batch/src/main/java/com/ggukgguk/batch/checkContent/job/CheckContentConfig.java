@@ -1,15 +1,12 @@
 package com.ggukgguk.batch.checkContent.job;
 
 import com.ggukgguk.batch.checkContent.vo.MediaFile;
-import com.ggukgguk.batch.common.service.RekognizeService;
-import com.ggukgguk.batch.extractKeyword.vo.Record;
-import com.ggukgguk.batch.extractKeyword.vo.RecordKeyword;
+import com.ggukgguk.batch.checkContent.service.RekognizeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.JobScope;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.item.ItemProcessor;
@@ -21,8 +18,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.rekognition.RekognitionClient;
 import ws.schild.jave.EncoderException;
 import ws.schild.jave.MultimediaObject;
 import ws.schild.jave.ScreenExtractor;
