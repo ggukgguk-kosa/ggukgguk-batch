@@ -1,17 +1,16 @@
 package com.ggukgguk.batch.extractKeyword.job;
 
-import com.ggukgguk.batch.common.service.ComprehendService;
-import com.ggukgguk.batch.common.service.ComprehendServiceImpl;
-import com.ggukgguk.batch.extractKeyword.vo.Record;
-import com.ggukgguk.batch.extractKeyword.vo.RecordKeyword;
-import com.ggukgguk.batch.extractKeyword.vo.RecordKeywordExtended;
+import com.ggukgguk.batch.extractKeyword.service.ColorService;
+import com.ggukgguk.batch.extractKeyword.service.ComprehendService;
+import com.ggukgguk.batch.extractKeyword.service.GgukggukNlpService;
+import com.ggukgguk.batch.extractKeyword.service.GgukggukNlpServiceImpl;
+import com.ggukgguk.batch.extractKeyword.vo.*;
 import com.ggukgguk.batch.extractKeyword.writer.ItemListWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.JobScope;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.item.ItemProcessor;
@@ -29,10 +28,7 @@ import org.springframework.jdbc.core.BeanPropertyRowMapper;
 
 import javax.sql.DataSource;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 @Configuration
 @RequiredArgsConstructor
@@ -41,7 +37,8 @@ public class ExtractKeywordConfig {
     private final JobBuilderFactory jobBuilderFactory;
     private final StepBuilderFactory stepBuilderFactory;
     private final DataSource dataSource;
-    private final ComprehendService comprehendService;
+    private final GgukggukNlpService ggukggukNlpService;
+    private final ColorService colorService;
 
     private static final int chunkSize = 10;
 
@@ -50,6 +47,8 @@ public class ExtractKeywordConfig {
         return jobBuilderFactory.get("extractKeywordJob")
                 .start(getKeywordsStep())
                 .next(countKeywordsStep())
+                .next(setDiaryMainKeywordStep())
+                .next(setDiaryColorStep())
                 .build();
     }
 
@@ -57,7 +56,7 @@ public class ExtractKeywordConfig {
     public Step getKeywordsStep() {
         return stepBuilderFactory.get("getKeywordsStep")
                 .<Record, List<RecordKeyword>> chunk(chunkSize)
-                .reader(recordReader(null))
+                .reader(recordReader(0, 0))
                 .processor(recordProcessor())
                 .writer(recordWriter())
                 .build();
@@ -67,19 +66,37 @@ public class ExtractKeywordConfig {
     public Step countKeywordsStep() {
         return stepBuilderFactory.get("countKeywordsStep")
                 .<RecordKeywordExtended, RecordKeywordExtended> chunk(chunkSize)
-                .reader(recordKeywordReader(null))
+                .reader(recordKeywordReader(0, 0))
                 .writer(recordKeywordWriter())
+                .build();
+    }
+
+    @Bean
+    public Step setDiaryMainKeywordStep() {
+        return stepBuilderFactory.get("setDiaryMainKeywordStep")
+                .<DiaryKeywordAndColor, DiaryKeywordAndColor> chunk(chunkSize)
+                .reader(diaryKeywordReader(0, 0))
+                .writer(diaryKeywordWriter())
+                .build();
+    }
+
+    @Bean
+    public Step setDiaryColorStep() {
+        return stepBuilderFactory.get("setDiaryColorStep")
+                .<Diary, List<DiaryKeywordAndColor>> chunk(chunkSize)
+                .reader(diaryReader(0, 0))
+                .processor(fetchDiaryColorProcessor())
+                .writer(diaryWriter())
                 .build();
     }
 
     @Bean
     @StepScope
     public JdbcCursorItemReader<Record> recordReader(
-            @Value("#{jobParameters[executionDate]}") Date executionDate) {
-
-        int year = executionDate.getYear();
-        int month = executionDate.getMonth();
-        Date startDate = new Date(year, month, 1);
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month) {
+        Calendar calendar = new GregorianCalendar(year, month - 1, 1);
+        Date startDate = calendar.getTime();
 
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
 
@@ -99,7 +116,8 @@ public class ExtractKeywordConfig {
     @Bean
     public ItemProcessor<Record, List<RecordKeyword>> recordProcessor() {
         return record -> {
-            List<RecordKeyword> result = comprehendService.extractKeywordFromRecord(record);
+//            List<RecordKeyword> result = comprehendService.extractKeywordFromRecord(record);
+            List<RecordKeyword> result = ggukggukNlpService.extractKeywordFromRecord(record);
             return result;
         };
     }
@@ -121,11 +139,10 @@ public class ExtractKeywordConfig {
     @Bean
     @StepScope
     public JdbcCursorItemReader<RecordKeywordExtended> recordKeywordReader(
-            @Value("#{jobParameters[executionDate]}") Date executionDate) {
-
-        int year = executionDate.getYear();
-        int month = executionDate.getMonth();
-        Date startDate = new Date(year, month, 1);
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month) {
+        Calendar calendar = new GregorianCalendar(year, month - 1, 1);
+        Date startDate = calendar.getTime();
 
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
 
@@ -136,7 +153,7 @@ public class ExtractKeywordConfig {
                 .sql("SELECT YEAR(r.record_created_at) AS 'diary_year', MONTH(r.record_created_at) AS 'diary_month', r.member_id, rk.record_keyword FROM record_keyword rk\n" +
                         "LEFT JOIN record r \n" +
                         "ON r.record_id = rk.record_id\n" +
-                        "WHERE r.record_created_at BETWEEN '" + format.format(startDate) +"' 00:00" +
+                        "WHERE r.record_created_at BETWEEN '" + format.format(startDate) + " 00:00'" +
                         "\tAND DATE_ADD('" + format.format(startDate) + " 00:00', INTERVAL +1 month);") // Job 파라미터에서 받아오도록 수정하기
                 .name("recordKeywordReader")
                 .build();
@@ -185,4 +202,145 @@ public class ExtractKeywordConfig {
                 .build();
     }
 
+    @Bean
+    @StepScope
+    public JdbcCursorItemReader<DiaryKeywordAndColor> diaryKeywordReader(
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month) {
+        return new JdbcCursorItemReaderBuilder<DiaryKeywordAndColor>()
+                .fetchSize(chunkSize)
+                .dataSource(dataSource)
+                .rowMapper(new BeanPropertyRowMapper<>(DiaryKeywordAndColor.class))
+                /* freq가 가장 높은 행을 가져오는 쿼리
+                SELECT dk.diary_id, dk.diary_keyword, dk.diary_freq
+                FROM (
+                    SELECT diary_id, diary_keyword, diary_freq
+                    FROM diary_keyword d
+                    WHERE diary_freq = (
+                      SELECT MAX(diary_freq)
+                      FROM diary_keyword
+                      WHERE diary_id = d.diary_id
+                    )
+                ) dk
+                LEFT JOIN diary d
+                ON dk.diary_id = d.diary_id
+                WHERE d.diary_year = 2023 AND d.diary_month = 4;
+                */
+                .sql("SELECT dk.diary_id, dk.diary_keyword, dk.diary_freq\n" +
+                        "FROM (\n" +
+                        "\tSELECT diary_id, diary_keyword, diary_freq\n" +
+                        "\tFROM diary_keyword d\n" +
+                        "\tWHERE diary_freq = (\n" +
+                        "\t  SELECT MAX(diary_freq)\n" +
+                        "\t  FROM diary_keyword\n" +
+                        "\t  WHERE diary_id = d.diary_id\n" +
+                        "\t)) dk\n" +
+                        "LEFT JOIN diary d \n" +
+                        "ON dk.diary_id = d.diary_id\n" +
+                        "WHERE d.diary_year = " + year + " AND d.diary_month = " + month) // Job 파라미터에서 받아오도록 수정하기
+                .name("diaryKeywordReader")
+                .build();
+    }
+
+    @Bean
+    public JdbcBatchItemWriter<DiaryKeywordAndColor> diaryKeywordWriter() {
+        return new JdbcBatchItemWriterBuilder<DiaryKeywordAndColor>()
+                .dataSource(dataSource)
+                .sql("UPDATE diary SET main_keyword = ? WHERE diary_id = ?;")
+                .beanMapped()
+                .itemPreparedStatementSetter((item, ps) -> {
+                    ps.setString(1, item.getDiaryKeyword());
+                    ps.setInt(2, item.getDiaryId());
+                })
+                .build();
+    }
+
+    @Bean
+    @StepScope
+    public JdbcCursorItemReader<Diary> diaryReader(
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month) {
+        return new JdbcCursorItemReaderBuilder<Diary>()
+                .fetchSize(chunkSize)
+                .dataSource(dataSource)
+                .rowMapper(new BeanPropertyRowMapper<>(Diary.class))
+                .sql("SELECT diary_id, member_id, diary_year, diary_month, main_color, main_keyword\n" +
+                        "FROM diary d\n" +
+                        "WHERE diary_year = " + year + " AND diary_month = " + month)
+                .name("diaryReader")
+                .build();
+    }
+
+    @Bean
+    public ItemProcessor<Diary, List<DiaryKeywordAndColor>> fetchDiaryColorProcessor() {
+        return diary -> {
+            List<String> colorList = colorService.getColor(diary.getMainColor());
+
+            List<DiaryKeywordAndColor> result = new ArrayList<>();
+            for (String color : colorList) {
+                DiaryKeywordAndColor item = new DiaryKeywordAndColor();
+                item.setDiaryId(diary.getDiaryId());
+                item.setDiaryColor(color);
+                item.setMemberId(diary.getMemberId());
+                result.add(item);
+            }
+
+            return result;
+        };
+    }
+
+    @Bean
+    public ItemWriter<List<DiaryKeywordAndColor>> setDiaryColors() {
+        return new ItemListWriter<DiaryKeywordAndColor>(new JdbcBatchItemWriterBuilder<DiaryKeywordAndColor>()
+                .dataSource(dataSource)
+                .sql("INSERT INTO diary_color VALUES (NULL, ?, ?)")
+                .beanMapped()
+                .itemPreparedStatementSetter((item, ps) -> {
+                    ps.setInt(1, item.getDiaryId());
+                    ps.setString(2, item.getDiaryColor());
+                })
+                .build());
+    }
+
+    @Bean
+    public JdbcBatchItemWriter<List<DiaryKeywordAndColor>> setDiaryMainColor() {
+        return new JdbcBatchItemWriterBuilder<List<DiaryKeywordAndColor>>()
+                .dataSource(dataSource)
+                .sql("UPDATE diary SET main_color = ? WHERE diary_id = ?;")
+                .beanMapped()
+                .itemPreparedStatementSetter((list, ps) -> {
+                    DiaryKeywordAndColor item = list.get(0);
+                    ps.setString(1, item.getDiaryColor());
+                    ps.setInt(2, item.getDiaryId());
+                })
+                .build();
+    }
+
+    @Bean
+    @StepScope
+    public JdbcBatchItemWriter<List<DiaryKeywordAndColor>> addNotification(
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month
+    ) {
+        return new JdbcBatchItemWriterBuilder<List<DiaryKeywordAndColor>>()
+                .dataSource(dataSource)
+                .sql("INSERT INTO notification " +
+                        "(receiver_id, notification_type_id, reference_id, notification_message) " +
+                        "VALUES (?, 'MONTHLY_ANALYSIS', ?, ?);")
+                .beanMapped()
+                .itemPreparedStatementSetter((list, ps) -> {
+                    DiaryKeywordAndColor item = list.get(0);
+                    ps.setString(1, item.getMemberId());
+                    ps.setInt(2, item.getDiaryId());
+                    ps.setString(3, year + "년 " + month + "월 월말정산이 완료되었습니다. 지금 바로 확인해보세요.");
+                })
+                .build();
+    }
+
+    @Bean
+    public CompositeItemWriter<List<DiaryKeywordAndColor>> diaryWriter() {
+        return new CompositeItemWriterBuilder<List<DiaryKeywordAndColor>>()
+                .delegates(Arrays.asList(setDiaryColors(), setDiaryMainColor(), addNotification(0, 0)))
+                .build();
+    }
 }

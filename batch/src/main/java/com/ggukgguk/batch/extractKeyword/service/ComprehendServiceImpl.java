@@ -1,10 +1,10 @@
-package com.ggukgguk.batch.common.service;
+package com.ggukgguk.batch.extractKeyword.service;
 
 import com.ggukgguk.batch.extractKeyword.vo.Record;
 import com.ggukgguk.batch.extractKeyword.vo.RecordKeyword;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
-import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.comprehend.ComprehendClient;
 import software.amazon.awssdk.services.comprehend.model.ComprehendException;
@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
-@StepScope
+@Component
 public class ComprehendServiceImpl implements ComprehendService {
     @Override
     public List<RecordKeyword> extractKeywordFromRecord(Record record) {

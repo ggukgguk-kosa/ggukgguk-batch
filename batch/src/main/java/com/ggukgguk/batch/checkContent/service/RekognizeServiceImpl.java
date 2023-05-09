@@ -1,7 +1,8 @@
-package com.ggukgguk.batch.common.service;
+package com.ggukgguk.batch.checkContent.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.rekognition.RekognitionClient;
@@ -15,7 +16,7 @@ import java.io.InputStream;
 import java.util.List;
 
 @Slf4j
-@StepScope
+@Component
 public class RekognizeServiceImpl implements RekognizeService{
     @Override
     public boolean detectModLabel(String sourceImage) {
