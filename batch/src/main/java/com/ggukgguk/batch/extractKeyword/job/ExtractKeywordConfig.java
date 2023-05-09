@@ -281,6 +281,7 @@ public class ExtractKeywordConfig {
                 DiaryKeywordAndColor item = new DiaryKeywordAndColor();
                 item.setDiaryId(diary.getDiaryId());
                 item.setDiaryColor(color);
+                item.setMemberId(diary.getMemberId());
                 result.add(item);
             }
 
@@ -316,9 +317,30 @@ public class ExtractKeywordConfig {
     }
 
     @Bean
+    @StepScope
+    public JdbcBatchItemWriter<List<DiaryKeywordAndColor>> addNotification(
+            @Value("#{jobParameters[year]}") int year,
+            @Value("#{jobParameters[month]}") int month
+    ) {
+        return new JdbcBatchItemWriterBuilder<List<DiaryKeywordAndColor>>()
+                .dataSource(dataSource)
+                .sql("INSERT INTO notification " +
+                        "(receiver_id, notification_type_id, reference_id, notification_message) " +
+                        "VALUES (?, 'MONTHLY_ANALYSIS', ?, ?);")
+                .beanMapped()
+                .itemPreparedStatementSetter((list, ps) -> {
+                    DiaryKeywordAndColor item = list.get(0);
+                    ps.setString(1, item.getMemberId());
+                    ps.setInt(2, item.getDiaryId());
+                    ps.setString(3, year + "년 " + month + "월 월말정산이 완료되었습니다. 지금 바로 확인해보세요.");
+                })
+                .build();
+    }
+
+    @Bean
     public CompositeItemWriter<List<DiaryKeywordAndColor>> diaryWriter() {
         return new CompositeItemWriterBuilder<List<DiaryKeywordAndColor>>()
-                .delegates(Arrays.asList(setDiaryColors(), setDiaryMainColor()))
+                .delegates(Arrays.asList(setDiaryColors(), setDiaryMainColor(), addNotification(0, 0)))
                 .build();
     }
 }

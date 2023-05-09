@@ -13,4 +13,5 @@ public class DiaryKeywordAndColor {
     String diaryKeyword;
     int diaryFreq;
     String diaryColor;
+    String memberId;
 }
