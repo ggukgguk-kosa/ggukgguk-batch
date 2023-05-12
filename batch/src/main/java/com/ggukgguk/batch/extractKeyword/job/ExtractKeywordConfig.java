@@ -274,7 +274,7 @@ public class ExtractKeywordConfig {
     @Bean
     public ItemProcessor<Diary, List<DiaryKeywordAndColor>> fetchDiaryColorProcessor() {
         return diary -> {
-            List<String> colorList = colorService.getColor(diary.getMainColor());
+            List<String> colorList = colorService.getColor(diary.getMainKeyword());
 
             List<DiaryKeywordAndColor> result = new ArrayList<>();
             for (String color : colorList) {
