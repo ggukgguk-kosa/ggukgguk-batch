@@ -1,5 +1,6 @@
 package com.ggukgguk.batch.checkContent.service;
 
+import com.ggukgguk.batch.checkContent.vo.MediaFileBlockedHistory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.stereotype.Component;
@@ -13,14 +14,15 @@ import software.amazon.awssdk.services.rekognition.model.ModerationLabel;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 @Component
 public class RekognizeServiceImpl implements RekognizeService{
     @Override
-    public boolean detectModLabel(String sourceImage) {
-        boolean shouldBlocked = false;
+    public List<MediaFileBlockedHistory> detectModLabel(String mediaFileId, String sourceImage) {
+        List<MediaFileBlockedHistory> result = new ArrayList<>();
 
         Region region = Region.US_WEST_2;
         RekognitionClient rekClient = RekognitionClient.builder()
@@ -47,17 +49,17 @@ public class RekognizeServiceImpl implements RekognizeService{
                 log.debug("Label: " + label.name()
                         + "\n Confidence: " + label.confidence().toString() + "%"
                         + "\n Parent:" + label.parentName());
+                MediaFileBlockedHistory entry = new MediaFileBlockedHistory(0, mediaFileId, label.name(),
+                        label.confidence(), null);
+                result.add(entry);
             }
 
-            shouldBlocked = labels.size() > 0 ? true : false;
-            log.debug("이미지 블록 여부: " + shouldBlocked);
         } catch (Exception e) {
             e.printStackTrace();
-            log.info("AWS Rekognize 요청에 실패했습니다.");
-            shouldBlocked = false;
+            log.info(mediaFileId + " - AWS Rekognize 요청에 실패했습니다.");
         } finally {
             rekClient.close();
-            return shouldBlocked;
+            return result;
         }
     }
 }
