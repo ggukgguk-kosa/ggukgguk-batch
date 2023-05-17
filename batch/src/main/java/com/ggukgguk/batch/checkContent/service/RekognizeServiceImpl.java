@@ -3,6 +3,7 @@ package com.ggukgguk.batch.checkContent.service;
 import com.ggukgguk.batch.checkContent.vo.MediaFileBlockedHistory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.regions.Region;
@@ -20,6 +21,13 @@ import java.util.List;
 @Slf4j
 @Component
 public class RekognizeServiceImpl implements RekognizeService{
+
+    @Value("${rekognize.moderation.excludeLabels}")
+    private List<String> excludeLabels;
+
+    @Value("${rekognize.moderation.minConfidence}")
+    private float minConfidence;
+
     @Override
     public List<MediaFileBlockedHistory> detectModLabel(String mediaFileId, String sourceImage) {
         List<MediaFileBlockedHistory> result = new ArrayList<>();
@@ -49,6 +57,16 @@ public class RekognizeServiceImpl implements RekognizeService{
                 log.debug("Label: " + label.name()
                         + "\n Confidence: " + label.confidence().toString() + "%"
                         + "\n Parent:" + label.parentName());
+
+                if (excludeLabels.contains(label.name())) {
+                    log.debug("-> Passed - exclude label");
+                    continue;
+                }
+                if (label.confidence() < minConfidence) {
+                    log.debug("-> Passed - low confidence");
+                    continue;
+                }
+
                 MediaFileBlockedHistory entry = new MediaFileBlockedHistory(0, mediaFileId, label.name(),
                         label.confidence(), null);
                 result.add(entry);
