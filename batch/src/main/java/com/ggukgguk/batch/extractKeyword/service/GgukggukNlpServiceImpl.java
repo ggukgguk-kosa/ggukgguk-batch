@@ -45,7 +45,11 @@ public class GgukggukNlpServiceImpl implements GgukggukNlpService {
         List<RecordKeyword> result = new ArrayList<RecordKeyword>();
 
         String input = record.getRecordComment();
-
+        
+        input = input.replace("\n", " "); // 개행시 400 오류 발생
+        input = input.replace("\r", " ");
+        input = input.replaceAll("[\\{\\}\\[\\]\\/?,;:|\\)*~`!^\\-_+<>@\\#$%&\\\\\\=\\(\\'\\\"]", " ");
+        
         if (input == null || input.equals("")) {
             result.add(RecordKeyword.builder()
                     .recordId(record.getRecordId())
@@ -86,6 +90,7 @@ public class GgukggukNlpServiceImpl implements GgukggukNlpService {
 
         } catch (Exception e) {
             log.info("키워드 추출 요청중 예외가 발생했습니다.");
+            log.info("요청: " + record);
             e.printStackTrace();
         }
 

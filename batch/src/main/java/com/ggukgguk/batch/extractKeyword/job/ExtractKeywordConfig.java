@@ -56,7 +56,7 @@ public class ExtractKeywordConfig {
     public Step getKeywordsStep() {
         return stepBuilderFactory.get("getKeywordsStep")
                 .<Record, List<RecordKeyword>> chunk(chunkSize)
-                .reader(recordReader(0, 0))
+                .reader(recordReader(0, 0, null))
                 .processor(recordProcessor())
                 .writer(recordWriter())
                 .build();
@@ -66,7 +66,7 @@ public class ExtractKeywordConfig {
     public Step countKeywordsStep() {
         return stepBuilderFactory.get("countKeywordsStep")
                 .<RecordKeywordExtended, RecordKeywordExtended> chunk(chunkSize)
-                .reader(recordKeywordReader(0, 0))
+                .reader(recordKeywordReader(0, 0, null))
                 .writer(recordKeywordWriter())
                 .build();
     }
@@ -75,7 +75,7 @@ public class ExtractKeywordConfig {
     public Step setDiaryMainKeywordStep() {
         return stepBuilderFactory.get("setDiaryMainKeywordStep")
                 .<DiaryKeywordAndColor, DiaryKeywordAndColor> chunk(chunkSize)
-                .reader(diaryKeywordReader(0, 0))
+                .reader(diaryKeywordReader(0, 0, null))
                 .writer(diaryKeywordWriter())
                 .build();
     }
@@ -84,7 +84,7 @@ public class ExtractKeywordConfig {
     public Step setDiaryColorStep() {
         return stepBuilderFactory.get("setDiaryColorStep")
                 .<Diary, List<DiaryKeywordAndColor>> chunk(chunkSize)
-                .reader(diaryReader(0, 0))
+                .reader(diaryReader(0, 0, null))
                 .processor(fetchDiaryColorProcessor())
                 .writer(diaryWriter())
                 .build();
@@ -94,21 +94,29 @@ public class ExtractKeywordConfig {
     @StepScope
     public JdbcCursorItemReader<Record> recordReader(
             @Value("#{jobParameters[year]}") int year,
-            @Value("#{jobParameters[month]}") int month) {
+            @Value("#{jobParameters[month]}") int month,
+            @Value("#{jobParameters[memberId]}") String memberId) {
         Calendar calendar = new GregorianCalendar(year, month - 1, 1);
         Date startDate = calendar.getTime();
 
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
 
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT *\n");
+        sb.append("FROM record\n");
+        sb.append("WHERE record_created_at\n");
+        sb.append("BETWEEN '" + format.format(startDate) + " 00:00'\n");
+        sb.append("AND DATE_ADD('" + format.format(startDate) + " 00:00', INTERVAL +1 month)\n");
+
+        if (memberId != null && !"".equals(memberId)) {
+            sb.append("AND member_id = '" + memberId + "'");
+        }
+
         return new JdbcCursorItemReaderBuilder<Record>()
                 .fetchSize(chunkSize)
                 .dataSource(dataSource)
                 .rowMapper(new BeanPropertyRowMapper<>(Record.class))
-                .sql("SELECT *\n" +
-                        "FROM record\n" +
-                        "WHERE record_created_at\n" +
-                        "BETWEEN '" + format.format(startDate) + " 00:00'\n" +
-                        "\tAND DATE_ADD('" + format.format(startDate) + " 00:00', INTERVAL +1 month);") // Job 파라미터에서 받아오도록 수정하기
+                .sql(sb.toString()) // Job 파라미터에서 받아오도록 수정하기
                 .name("recordReader")
                 .build();
     }
@@ -140,21 +148,29 @@ public class ExtractKeywordConfig {
     @StepScope
     public JdbcCursorItemReader<RecordKeywordExtended> recordKeywordReader(
             @Value("#{jobParameters[year]}") int year,
-            @Value("#{jobParameters[month]}") int month) {
+            @Value("#{jobParameters[month]}") int month,
+            @Value("#{jobParameters[memberId]}") String memberId) {
         Calendar calendar = new GregorianCalendar(year, month - 1, 1);
         Date startDate = calendar.getTime();
 
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
 
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT YEAR(r.record_created_at) AS 'diary_year', MONTH(r.record_created_at) AS 'diary_month', r.member_id, rk.record_keyword FROM record_keyword rk\n");
+        sb.append("LEFT JOIN record r \n");
+        sb.append("ON r.record_id = rk.record_id\n");
+        sb.append("WHERE r.record_created_at BETWEEN '" + format.format(startDate) + " 00:00'\n");
+        sb.append("AND DATE_ADD('" + format.format(startDate) + " 00:00', INTERVAL +1 month)\n");
+
+        if (memberId != null && !"".equals(memberId)) {
+            sb.append("AND member_id = '" + memberId + "'");
+        }
+
         return new JdbcCursorItemReaderBuilder<RecordKeywordExtended>()
                 .fetchSize(chunkSize)
                 .dataSource(dataSource)
                 .rowMapper(new BeanPropertyRowMapper<>(RecordKeywordExtended.class))
-                .sql("SELECT YEAR(r.record_created_at) AS 'diary_year', MONTH(r.record_created_at) AS 'diary_month', r.member_id, rk.record_keyword FROM record_keyword rk\n" +
-                        "LEFT JOIN record r \n" +
-                        "ON r.record_id = rk.record_id\n" +
-                        "WHERE r.record_created_at BETWEEN '" + format.format(startDate) + " 00:00'" +
-                        "\tAND DATE_ADD('" + format.format(startDate) + " 00:00', INTERVAL +1 month);") // Job 파라미터에서 받아오도록 수정하기
+                .sql(sb.toString()) // Job 파라미터에서 받아오도록 수정하기
                 .name("recordKeywordReader")
                 .build();
     }
@@ -206,38 +222,33 @@ public class ExtractKeywordConfig {
     @StepScope
     public JdbcCursorItemReader<DiaryKeywordAndColor> diaryKeywordReader(
             @Value("#{jobParameters[year]}") int year,
-            @Value("#{jobParameters[month]}") int month) {
+            @Value("#{jobParameters[month]}") int month,
+            @Value("#{jobParameters[memberId]}") String memberId) {
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT dk.diary_id, dk.diary_keyword, dk.diary_freq\n"); // freq가 가장 높은 행을 가져오는 쿼리
+        sb.append("FROM (\n");
+        sb.append("\tSELECT diary_id, diary_keyword, diary_freq\n");
+        sb.append("\tFROM diary_keyword d\n");
+        sb.append("\tWHERE diary_freq = (\n");
+        sb.append("\t  SELECT MAX(diary_freq)\n");
+        sb.append("\t  FROM diary_keyword\n");
+        sb.append("\t  WHERE diary_id = d.diary_id\n");
+        sb.append("\t)) dk\n");
+        sb.append("LEFT JOIN diary d \n");
+        sb.append("ON dk.diary_id = d.diary_id\n");
+        sb.append("WHERE d.diary_year = " + year + " AND d.diary_month = " + month + " ");
+
+
+        if (memberId != null && !"".equals(memberId)) {
+            sb.append("AND member_id = '" + memberId + "'");
+        }
+
         return new JdbcCursorItemReaderBuilder<DiaryKeywordAndColor>()
                 .fetchSize(chunkSize)
                 .dataSource(dataSource)
                 .rowMapper(new BeanPropertyRowMapper<>(DiaryKeywordAndColor.class))
-                /* freq가 가장 높은 행을 가져오는 쿼리
-                SELECT dk.diary_id, dk.diary_keyword, dk.diary_freq
-                FROM (
-                    SELECT diary_id, diary_keyword, diary_freq
-                    FROM diary_keyword d
-                    WHERE diary_freq = (
-                      SELECT MAX(diary_freq)
-                      FROM diary_keyword
-                      WHERE diary_id = d.diary_id
-                    )
-                ) dk
-                LEFT JOIN diary d
-                ON dk.diary_id = d.diary_id
-                WHERE d.diary_year = 2023 AND d.diary_month = 4;
-                */
-                .sql("SELECT dk.diary_id, dk.diary_keyword, dk.diary_freq\n" +
-                        "FROM (\n" +
-                        "\tSELECT diary_id, diary_keyword, diary_freq\n" +
-                        "\tFROM diary_keyword d\n" +
-                        "\tWHERE diary_freq = (\n" +
-                        "\t  SELECT MAX(diary_freq)\n" +
-                        "\t  FROM diary_keyword\n" +
-                        "\t  WHERE diary_id = d.diary_id\n" +
-                        "\t)) dk\n" +
-                        "LEFT JOIN diary d \n" +
-                        "ON dk.diary_id = d.diary_id\n" +
-                        "WHERE d.diary_year = " + year + " AND d.diary_month = " + month) // Job 파라미터에서 받아오도록 수정하기
+                .sql(sb.toString())
                 .name("diaryKeywordReader")
                 .build();
     }
@@ -259,14 +270,22 @@ public class ExtractKeywordConfig {
     @StepScope
     public JdbcCursorItemReader<Diary> diaryReader(
             @Value("#{jobParameters[year]}") int year,
-            @Value("#{jobParameters[month]}") int month) {
+            @Value("#{jobParameters[month]}") int month,
+            @Value("#{jobParameters[memberId]}") String memberId) {
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT diary_id, member_id, diary_year, diary_month, main_color, main_keyword\n");
+        sb.append("FROM diary d\n");
+        sb.append("WHERE diary_year = " + year + " AND diary_month = " + month + " ");
+        if (memberId != null && !"".equals(memberId)) {
+            sb.append("AND member_id = '" + memberId + "'");
+        }
+
         return new JdbcCursorItemReaderBuilder<Diary>()
                 .fetchSize(chunkSize)
                 .dataSource(dataSource)
                 .rowMapper(new BeanPropertyRowMapper<>(Diary.class))
-                .sql("SELECT diary_id, member_id, diary_year, diary_month, main_color, main_keyword\n" +
-                        "FROM diary d\n" +
-                        "WHERE diary_year = " + year + " AND diary_month = " + month)
+                .sql(sb.toString())
                 .name("diaryReader")
                 .build();
     }
