@@ -19,5 +19,6 @@
         - 스프링 배치로 작성된 별도의 배치 프로그램
         - 지원 미디어: 이미지, 비디오 (1초 간격으로 스냅샷 생성 후 검사)
         - 유해성 검사: Amazon Rekognition AI 연계
+- [설계 문서 아카이빙](https://github.com/ggukgguk-kosa/ggukgguk-backend/tree/main/docs)
 
 ![꾹꾹 아키텍처](./ggukgguk-diagram.png)
